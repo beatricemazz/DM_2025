@@ -3,7 +3,7 @@
 # GROUP 45: Nuclear Energy Analysis
 
 <div align="center">
-    <img src="https://help.steampowered.com/public/shared/images/responsive/steam_share_image.jpg" alt="Steam Reviews Analysis" width="600" />
+    <img src="https://www.googleapis.com/download/storage/v1/b/kaggle-user-content/o/inbox%2F8734253%2F6fb2bf7728a3a187a6d406c0ff2b7a8f%2Fnuclear%20energy%20flag.png?generation=1718487639963302&alt=media" width="600" />
 </div>
 
 ## Introduction

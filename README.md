@@ -10,7 +10,7 @@
 
 ## Introduction
 This project focuses on analyzing nuclear energy data available on kaggle, using a downloadable dataset available [here](https://www.kaggle.com/datasets/alistairking/nuclear-energy-datasets/data).
-The project notebook can be visualized via nbviewer: [View Notebook] (https://nbviewer.org/github/beatricemazz/DM_2025/blob/main/Group_45_EDA.ipynb)
+The project notebook can be visualized via nbviewer: [View Notebook](https://nbviewer.org/github/beatricemazz/DM_2025/blob/main/Group_45_EDA.ipynb)
 
 
 ## Table of Contents

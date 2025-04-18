@@ -6,8 +6,12 @@
     <img src="https://www.googleapis.com/download/storage/v1/b/kaggle-user-content/o/inbox%2F8734253%2F6fb2bf7728a3a187a6d406c0ff2b7a8f%2Fnuclear%20energy%20flag.png?generation=1718487639963302&alt=media" width="600" />
 </div>
 
+
+
 ## Introduction
 This project focuses on analyzing nuclear energy data available on kaggle, using a downloadable dataset available [here](https://www.kaggle.com/datasets/alistairking/nuclear-energy-datasets/data).
+The project notebook can be visualized via nbviewer: [View Notebook] (https://nbviewer.org/github/beatricemazz/DM_2025/blob/main/Group_45_EDA.ipynb)
+
 
 ## Table of Contents
 - [Project Objectives](#project-objectives)

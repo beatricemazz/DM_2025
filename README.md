@@ -19,7 +19,7 @@ The goal of the analysis is to perform an initial EDA analysis to integrate with
 
 ## Project Structure
 The repository is organized as follows:
-- **[group10.ipynb](group10.ipynb)**: This Jupyter Notebook contains:
+- **[Group_45_EDA.ipynb](Group_45_EDA.ipynb)**: This Jupyter Notebook contains:
     The exploratory data analysis of each table in the dataset with the Python code to perform analyses and visualize results.
 
 ## Editors

@@ -24,4 +24,4 @@ The repository is organized as follows:
 
 ## Editors
 - **Beatrice Mazzocchi**: [GitHub Profile](https://github.com/beatricemazz)
-- **Asia Montico** :
+- **Asia Montico** : [GitHub Profile](https://github.com/Asiamontico)

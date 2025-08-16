@@ -1,0 +1,490 @@
+
+╔══════════════════════════════════════════════════════════════════╗
+║   Group 45: Beatrice Mazzocchi (1982122), Asia Montico (1966494)                     
+║   Dataset:  Nuclear Energy Dataset                                                  
+║   Tool:     MySQL Workbench 8.0.41                                                   
+║   Github:   https://github.com/beatricemazz/DM_2025                                  
+╚══════════════════════════════════════════════════════════════════╝
+
+=== DATABASE SCHEMA ===
+
+CREATE TABLE power_plant_global (
+    country VARCHAR(100),
+    country_long VARCHAR(100),
+    name VARCHAR(255),
+    gppd_idnr VARCHAR(100),
+    capacity_mw FLOAT,
+    latitude FLOAT,
+    longitude FLOAT,
+    primary_fuel VARCHAR(50),
+    generation_gwh_2017 FLOAT,
+    estimated_generation_gwh_2017 FLOAT);
+
+[Table tracking mortality rates per unit of electricity produced by different energy sources]
+
+CREATE TABLE `rates_death_from_energy_production_per_twh`(
+  `Entity` TEXT NOT NULL,
+  `Deaths per TWh of electricity production` DOUBLE DEFAULT NULL,
+  `Year` INT,
+  PRIMARY KEY (`Entity`(100), `Year`));
+
+[Inventory of uranium production facilities in the United States by type]
+
+CREATE TABLE `number_of_plants_producing_uranium_in_us` (
+  `Year` INT NOT NULL,
+  `Mills - conventional milling` INT DEFAULT NULL,
+  `Mills - other operations` INT DEFAULT NULL,
+  `In-situ recovery plants` INT DEFAULT NULL,
+  `Byproduct recovery plants` INT DEFAULT NULL,
+  PRIMARY KEY (`Year`));
+
+[Annual summary of uranium mining and processing activities in the US]
+
+CREATE TABLE `uranium_production_summary_us` (
+  `Year` INT NOT NULL,
+  `Exploration and development surface drilling` DOUBLE DEFAULT NULL,
+  `Exploration and development drilling expenditures` DOUBLE DEFAULT NULL,
+  `Mine production of uranium` DOUBLE DEFAULT NULL,
+  `Uranium concentrate production` DOUBLE DEFAULT NULL,
+  `Uranium concentrate shipments` DOUBLE DEFAULT NULL,
+  `Employment` TEXT,
+  PRIMARY KEY (`Year`));
+
+[Records of uranium procurement contracts and market transactions]
+
+CREATE TABLE `uranium_purchase_price_us` (
+  `Delivery year` INT NOT NULL,
+  `Total purchased` DOUBLE DEFAULT NULL,
+  `Purchased from U.S. producers` DOUBLE DEFAULT NULL,
+  `Purchased from U.S. brokers and traders` DOUBLE DEFAULT NULL,
+  `Purchased from other owners and operators of U.S.` DOUBLE DEFAULT NULL,
+  `Purchased from foreign suppliers` DOUBLE DEFAULT NULL,
+  `U.S.-origin uranium` DOUBLE DEFAULT NULL,
+  `Foreign-origin uranium` DOUBLE DEFAULT NULL,
+  `Spot contracts` DOUBLE DEFAULT NULL,
+  `Short-, medium-, and long-term contracts` DOUBLE DEFAULT NULL,
+  PRIMARY KEY (`Delivery year`));
+
+[Key performance indicators for nuclear power generation in the US]
+
+CREATE TABLE `us_nuclear_generating_statistics` (
+  `YEAR` INT NOT NULL,
+  `TOTAL ELECTRICITY GENERATION` DECIMAL(15,2) NOT NULL,
+  `NUCLEAR GENERATION` DECIMAL(15,2) NOT NULL,
+  `NUCLEAR FUEL SHARE` DECIMAL(5,2) NOT NULL,
+  `CAPACITY FACTOR` DECIMAL(5,2) NOT NULL,
+  `SUMMER CAPACITY` DECIMAL(10,2) NOT NULL,
+  PRIMARY KEY (`YEAR`));
+
+[Global electricity generation metrics with nuclear-specific breakdown]
+
+CREATE TABLE `world_electricity_generation` (
+  `Year` INT NOT NULL,
+  `Month` TEXT NOT NULL,
+  `nuclear_generation_twh` DOUBLE DEFAULT NULL,
+  `share_of_generation_pct` DOUBLE DEFAULT NULL,
+  PRIMARY KEY (`Year`, `Month`(2)));
+
+[Country-level nuclear power generation statistics worldwide]
+
+CREATE TABLE `world_nuclear_energy_generation` (
+  `Entity` TEXT NOT NULL,
+  `Year` INT NOT NULL,
+  `electricity_from_nuclear_twh` BIGINT DEFAULT NULL,
+  `share_of_electricity_pct` BIGINT DEFAULT NULL);
+
+=== SQL CODE QUERIES ===
+
+-- QUERY 1: Capacity per fuel --
+
+With this query, we are trying to prove an important thesis: nuclear energy should no longer be considered a taboo. 
+In other words, we want to emphasize that, although there are few nuclear plants (only 195 plants globally),
+these plants are extremely powerful and capable of generating large amounts of energy (around 407,912 MW in total).
+In contrast, other energy sources such as CoaL, GasDespite being polluting and having a significantly higher number of plants, 
+they are not as efficient in terms of average capacity per single site.
+The generation capacity of nuclear energy is therefore a key point: it is not only capable of producing a large amount of energy
+with a small number of plants, but it also offers a very powerful and environmentally friendlier solution compared 
+to many fossil fuel sources.
+
+
+SELECT 
+    primary_fuel,
+    COUNT(*) AS number_of_plants,
+    SUM(capacity_mw) AS total_capacity_mw
+FROM 
+    power_plant_global
+GROUP BY 
+    primary_fuel
+ORDER BY 
+    total_capacity_mw DESC;
+
+
+-- QUERY 2: Top 10 countries per Nuclear Capacity --
+
+With this query, we aimed to calculate the total nuclear energy production capacity for each country. 
+The goal is to gain a global perspective on how nuclear energy is distributed worldwide and identify which countries 
+are the most significant players in this sector.From the results, it is clear that:
+- The United States is the global leader in terms of installed nuclear capacity.
+- France stands out as the top European country in terms of total nuclear power output.
+This allows us to define priority areas for deeper analysis. 
+In particular, we will go back to  the United States, as the dataset provides us with dedicated tables focused on the U.S. context. 
+We will investigate whether this high level of nuclear energy production is also justified in terms of the raw material 
+used: the uranium, which is the key resource required to generate nuclear energy.
+
+
+SELECT country_long, ROUND(SUM(capacity_mw), 2) AS total_nuclear_capacity_mw
+FROM power_plant_global
+WHERE TRIM(REPLACE(REPLACE(primary_fuel, '\r', ''), '\n', '')) = 'Nuclear'
+GROUP BY country_long
+ORDER BY total_nuclear_capacity_mw DESC
+LIMIT 10;
+
+
+-- QUERY 3: Countries by Nuclear Share in Electricity Generation --
+
+This table shows, for each country, the average percentage of electricity generated from nuclear sources in 2023 
+(the most recent year available in the dataset). Each country has an energy mix that covers 100% of its electricity needs,
+and here we analyze how much of that 100% comes from nuclear energy.
+We then applied a filter to include only countries where the share of nuclear energy exceeds the global average. 
+This allows us to highlight which nations rely more heavily on nuclear power compared to the world average.
+It is noteworthy that the first nine countries in the table are all European nations, with France leading the way. 
+As we have already highlighted earlier, France remains a major player in the nuclear energy sector, 
+demonstrating its strong reliance on nuclear power.
+ 
+
+SELECT Entity,ROUND(AVG(share_of_electricity_pct), 2) AS avg_nuclear_share
+FROM world_nuclear_energy_generation
+WHERE Year = 2023 
+GROUP BY Entity
+HAVING AVG(share_of_electricity_pct) > (SELECT AVG(share_of_electricity_pct) 
+										FROM world_nuclear_energy_generation
+                                        WHERE Year = 2023)
+ORDER BY avg_nuclear_share DESC;
+
+
+-- QUERY 4: Highest Annual Increases in Nuclear Energy Production by Country --
+
+This query aims to identify, for each country, the year (from 2015 onward) in which the highest annual increase 
+in nuclear electricity generation was recorded, measured in terawatt-hours (TWh). 
+In other words, we want to highlight the years in which individual countries experienced the largest "jump" in nuclear energy 
+production in terms of increased capacity.
+To achieve this, we compared the positive difference in nuclear energy produced between consecutive years, 
+focusing solely on the last decade. We specifically concentrated on cases where nuclear energy production increased 
+compared to the previous year, thus excluding any decreases or stagnation in production.
+Our goal is to highlight the maximum annual increase in nuclear energy production for each country,
+providing a clear and detailed overview of where and when countries experienced the largest gains in nuclear energy production.
+Looking at individual countries rather than cooperations or aggregations of countries, we can see that France, Canada, and Japan 
+are the ones that have most recently invested heavily in nuclear energy.
+
+
+SELECT t1.Entity,
+    t1.Year,
+    t1.electricity_from_nuclear_twh AS total_nuclear_generation,
+    t1.electricity_from_nuclear_twh - t2.electricity_from_nuclear_twh AS generation_difference
+FROM world_nuclear_energy_generation t1
+JOIN world_nuclear_energy_generation t2
+ON t1.Entity = t2.Entity 
+AND t1.Year = t2.Year + 1
+WHERE t1.Year > 2015
+AND t1.electricity_from_nuclear_twh - t2.electricity_from_nuclear_twh > 0
+AND (t1.electricity_from_nuclear_twh - t2.electricity_from_nuclear_twh) = (
+	SELECT MAX(t3.electricity_from_nuclear_twh - t4.electricity_from_nuclear_twh)
+	FROM world_nuclear_energy_generation t3
+	JOIN world_nuclear_energy_generation t4
+	ON t3.Entity = t4.Entity
+	AND t3.Year = t4.Year + 1
+	WHERE t3.Entity = t1.Entity
+        AND t3.Year > 2015)
+ORDER BY t1.Entity, t1.Year;
+
+
+-- QUERY 5: Geographical Bands analysis --
+
+In this analysis, we shifted from looking at individual countries to focusing on geographical bands, aiming to create a physical 
+and geographical representation of areas critical to nuclear energy production. Instead of using political borders, we divided the world 
+into latitudes and longitudes to understand the global distribution of nuclear power plants and their capacity.
+Our goal was to see how many nuclear plants exist in these areas and, more importantly, to assess the total energy production capacity of these plants. 
+We then ranked the areas by their total capacity, allowing us to highlight the regions that are most critical in terms of energy generated by nuclear plants.
+From this analysis, we can conclude that The United States and Canada, the Europe, particularly France, along with certain regions in Asia 
+such as South Korea and Japan,dominate in terms of nuclear energy production.
+
+
+SELECT
+  CONCAT(FLOOR(latitude / 5) * 5, '°–', FLOOR(latitude / 5) * 5 + 5, '°') AS lat_band,
+  CONCAT(FLOOR(longitude / 5) * 5, '°–', FLOOR(longitude / 5) * 5 + 5, '°') AS lon_band,
+  COUNT(*) AS plant_count,
+  SUM(capacity_mw) AS total_capacity_mw,
+  GROUP_CONCAT(DISTINCT country_long ORDER BY country_long SEPARATOR ', ') AS countries_in_band
+FROM
+  power_plant_global
+WHERE
+  primary_fuel = 'Nuclear'
+  AND latitude IS NOT NULL
+  AND longitude IS NOT NULL
+GROUP BY
+  lat_band, lon_band
+ORDER BY
+  total_capacity_mw DESC;
+
+
+
+-- QUERY 6: Safety Levels of other sources  --
+
+In this query, our goal is to analyze and compare the safety levels of different energy sources, using a key metric: the number of deaths per terawatt-hour (TWh) of electricity production.
+This data offers insight into the human cost of each energy technology, including both direct (accidents, failures) and indirect (pollution, long-term exposure) deaths.
+By performing a cross join between nuclear and every other energy source, we calculated a ratio that shows how many times more dangerous each alternative source is compared to nuclear energy.
+
+
+SELECT 
+    n.Entity AS nuclear,
+    n.`Deaths per TWh of electricity production` AS nuclear_deaths,
+    o.Entity AS other_source,
+    o.`Deaths per TWh of electricity production` AS other_deaths,
+    (o.`Deaths per TWh of electricity production` / n.`Deaths per TWh of electricity production`) AS times_more_dangerous
+FROM rates_death_from_energy_production_per_twh n
+CROSS JOIN rates_death_from_energy_production_per_twh o
+WHERE n.Entity = 'Nuclear' 
+AND o.Entity != 'Nuclear'
+ORDER BY times_more_dangerous DESC;
+
+
+-- QUERY 7: Nuclear vs Solar energy --
+
+In this query, we perform a country-level comparison between nuclear and solar energy, focusing on both their estimated electricity production and the associated number of deaths. For each country that produces energy from both sources, we calculate the total generation (in GWh) and estimate the number of deaths based on global averages of deaths per TWh .
+The idea is to bring together two clean energy sources and evaluate not just how much energy they produce, but also the human cost associated with that production. While solar is widely regarded as a safe and sustainable option, this analysis shows that nuclear energy can generate significantly more power in many countries, often with a comparable death rate. 
+
+
+SELECT 
+    n.country,
+    n.country_long,
+    n.nuclear_gwh,
+    s.solar_gwh,
+    n.nuclear_deaths,
+    s.solar_deaths
+FROM 
+    (SELECT country, country_long, 
+            SUM(estimated_generation_gwh_2017) AS nuclear_gwh,
+            SUM(estimated_generation_gwh_2017)/1000 * 
+             (SELECT `Deaths per TWh of electricity production` 
+              FROM rates_death_from_energy_production_per_twh 
+              WHERE entity = 'Nuclear' AND year = 2021) AS nuclear_deaths
+     FROM power_plant_global
+     WHERE primary_fuel = 'Nuclear'
+     GROUP BY country, country_long
+     HAVING SUM(estimated_generation_gwh_2017) > 0) n
+INNER JOIN 
+    (SELECT country, country_long,
+            SUM(estimated_generation_gwh_2017) AS solar_gwh,
+            SUM(estimated_generation_gwh_2017)/1000 * 
+             (SELECT `Deaths per TWh of electricity production` 
+              FROM rates_death_from_energy_production_per_twh 
+              WHERE entity = 'Solar' AND year = 2021) AS solar_deaths
+     FROM power_plant_global
+     WHERE primary_fuel = 'Solar'
+     GROUP BY country, country_long
+     HAVING SUM(estimated_generation_gwh_2017) > 0) s
+ON n.country = s.country
+ORDER BY n.nuclear_gwh DESC;
+
+
+-- QUERY 8: actual vs estimated nuclear energy generation --
+
+In this analysis, we focused on the difference between the actual and estimated nuclear energy generation for each power plant in the year 2017. The goal was to assess how accurate the estimations are compared to the real recorded data.
+For each nuclear plant with both actual and estimated generation data, we calculated the absolute and percent error to measure discrepancies. We then sorted the results by percent error to identify the plants with the largest differences between estimated and actual energy output. Unfortunately, we found that the estimations were often not accurate, with some significant deviations.
+
+SELECT 
+    country,
+    name,
+    generation_gwh_2017 AS real_generation,
+    estimated_generation_gwh_2017 AS estimated_generation,
+    ROUND(ABS(generation_gwh_2017 - estimated_generation_gwh_2017), 2) AS absolute_error,
+    ROUND(
+        (ABS(generation_gwh_2017 - estimated_generation_gwh_2017) / generation_gwh_2017) * 100, 
+        2
+    ) AS percent_error 
+FROM 
+    power_plant_global
+WHERE 
+    primary_fuel = 'Nuclear' AND 
+    generation_gwh_2017 IS NOT NULL AND 
+    estimated_generation_gwh_2017 IS NOT NULL
+ORDER BY 
+    percent_error DESC;
+    
+-- QUERY 9: U.S. uranium production and nuclear energy generation (time analysis)--
+   
+In this query, we focus on the U.S. uranium production industry and its relationship with nuclear energy generation over time.
+We join two datasets: one providing data on uranium mining, including annual production in million pounds and employment, and the other reporting nuclear electricity generation in megawatt-hours (MWh). By aligning both datasets by year, we observe a key trend:although the domestic production of uranium and the number of employees in uranium-related jobs have both declined over the years, the total nuclear energy generation has remained relatively stable. This suggests that the U.S. has likely increased uranium imports to meet its nuclear energy production needs. 
+
+ 
+SELECT 
+    p.Year,
+    p.`Mine production of uranium` AS production_million_lbs,
+    p.`Employment` AS employees,
+    n.`NUCLEAR GENERATION` AS generation_mwh
+FROM 
+    uranium_production_summary_us p
+JOIN 
+    us_nuclear_generating_statistics n ON p.Year = n.YEAR
+WHERE 
+    p.`Employment` > 0 
+ORDER BY 
+    p.Year DESC;
+    
+-- QUERY 10: nuclear energy production in the United States and uranium costs (time analysis) --
+
+This query aims to analyze the relationship between nuclear energy production in the United States and the associated uranium costs over time. By joining two datasets, one containing U.S. nuclear generation statistics and the other detailing uranium purchase prices and quantities, we can understand how changes in uranium prices and nuclear generation affect overall uranium costs for nuclear power production.
+The query first calculates the amount of uranium needed for nuclear generation each year, using the assumption that each megawatt-hour (MWh) of nuclear energy requires approximately 0.007 pounds of uranium. Then, it calculates the total uranium cost for each year by multiplying the required uranium by the uranium price for that year.
+
+
+SELECT 
+    ng.year,
+    ng.`NUCLEAR GENERATION`,
+    ROUND(ng.`NUCLEAR GENERATION` * 0.007, 2) AS `URANIUM NEEDED POUNDS`,
+    up.`Total purchased` AS `URANIUM PRICE (USD/Ibs)`,
+    ROUND((ng.`NUCLEAR GENERATION` * 0.007) * up.`Total purchased`, 2) AS `TOTAL URANIUM COST (USD)`
+FROM 
+    us_nuclear_generating_statistics ng
+JOIN 
+    Uranium_purchase_price_us up 
+    ON ng.year = up.`Delivery year`
+WHERE 
+    ng.`NUCLEAR GENERATION` IS NOT NULL 
+    AND up.`Total purchased` IS NOT NULL
+ORDER BY 
+    ng.year DESC;
+
+
+
+=== OPTIMIZATION PROCESS ===
+
+-- QUERY 2 OPTIMIZED: Top 10 countries per Nuclear Capacity --
+
+We modified the second query by creating an expression index because, in the original table, the primary_fuel column contained newline characters, 
+which we noticed when displaying the data. To address this, we decided to remove the newline and carriage return characters using TRIM and REPLACE.
+By doing so, instead of cleaning the data after each query, we automated the cleaning during the index creation, 
+thus optimizing the process and improving performance
+
+
+CREATE INDEX idx_clean_nuclear_fuel ON power_plants_global(
+    (TRIM(REPLACE(REPLACE(primary_fuel, '\r', ''), '\n', ''))), 
+    country_long, 
+    capacity_mw);
+
+
+-- QUERY 4 OPTIMIZED: Highest Annual Increases in Nuclear Energy Production by Country --
+
+In the first approach, the query was complex because to calculate the maximum generation difference between years, we used a nested subquery within the WHERE clause.
+This made the logic difficult to follow and maintain, as the calculation was being repeated for each row. We decide to improve it by
+firstly,  separate the logic into two CTEs:
+- RecentData: Filters the data for years after 2014.
+- YearlyDiffs: Calculates the annual difference and identifies the year with the maximum difference.
+Thus the query becomes easier to manage.
+Secondly, since in the first approach, we calculated the maximum difference through a subquery for each entity, 
+forcing the database to repeat the same calculation for each row. This was inefficient.
+In the second approach, we use a window function, FIRST_VALUE(), which allows us to easily identify the year with the maximum generation difference
+ for each entity without needing to perform separate calculations for each row. The window function simplifies the process 
+ by executing the calculation once for the entire dataset, improving efficiency.
+
+
+WITH RecentData AS 
+	(SELECT 
+        Entity, 
+        Year, 
+        electricity_from_nuclear_twh 
+    FROM world_nuclear_energy_generation 
+    WHERE Year > 2014),
+YearlyDiffs AS 
+        (SELECT 
+        curr.Entity,
+        curr.Year,
+        curr.electricity_from_nuclear_twh AS current_gen,
+        curr.electricity_from_nuclear_twh - prev.electricity_from_nuclear_twh AS diff,
+        FIRST_VALUE(curr.Year) OVER (
+            PARTITION BY curr.Entity 
+            ORDER BY curr.electricity_from_nuclear_twh - prev.electricity_from_nuclear_twh DESC
+            ROWS UNBOUNDED PRECEDING) AS first_max_year
+    FROM RecentData curr
+    JOIN RecentData prev
+        ON curr.Entity = prev.Entity 
+        AND curr.Year = prev.Year + 1
+    WHERE curr.Year > 2015
+	AND curr.electricity_from_nuclear_twh > prev.electricity_from_nuclear_twh)
+SELECT 
+    Entity,
+    Year,
+    current_gen AS total_nuclear_generation,
+    diff AS generation_difference
+FROM YearlyDiffs
+WHERE Year = first_max_year
+ORDER BY Entity, Year;
+
+
+-- QUERY 5 OPTIMIZED: Global Distribution and Capacity of Nuclear Energy --
+
+
+In the initial query, the latitude and longitude bands were calculated directly within the SELECT clause for every row. This led to redundant calculations for each plant, which made the query slower and more complex. Additionally, the query relied on filtering and grouping without any indexes, which could cause slower data retrieval, especially when dealing with large datasets.
+To optimize the query, two key changes were made:
+-Pre-computation of Latitude and Longitude Bands: Instead of recalculating the latitude and longitude bands for every row, the values were precomputed in a subquery, which reduces redundancy and improves efficiency.
+-Using Indexes: Two indexes were created: idx_latitude_longitude to speed up the grouping by geographical bands and idx_primary_fuel to enhance the filtering on the condition primary_fuel = 'Nuclear'.
+
+
+
+CREATE INDEX idx_latitude_longitude ON power_plant_global(latitude, longitude);
+CREATE INDEX idx_primary_fuel ON power_plant_global(primary_fuel);
+
+SELECT 
+    CONCAT(lat_base, '°–', lat_base + 5, '°') AS lat_band,
+    CONCAT(lon_base, '°–', lon_base + 5, '°') AS lon_band,
+    COUNT(*) AS plant_count,
+    SUM(capacity_mw) AS total_capacity_mw,
+    GROUP_CONCAT(DISTINCT country_long ORDER BY country_long SEPARATOR ', ') AS countries_in_band
+FROM (
+    SELECT 
+        FLOOR(latitude / 5) * 5 AS lat_base,
+        FLOOR(longitude / 5) * 5 AS lon_base,
+        country_long,
+        capacity_mw
+    FROM power_plant_global
+    WHERE 
+        primary_fuel = 'Nuclear'
+        AND latitude IS NOT NULL
+        AND longitude IS NOT NULL
+) AS pregroup
+GROUP BY lat_base, lon_base
+ORDER BY total_capacity_mw DESC;
+
+
+-- QUERY 7 OPTIMIZED: Global Distribution and Capacity of Nuclear Energy --
+
+The query was optimized by adding a composite index on the columns most used for filtering, grouping, and aggregation: primary_fuel, country, country_long, and estimated_generation_gwh_2017.
+This reduces full table scans and speeds up both the subqueries and the join, making the overall execution significantly more efficient.
+
+
+
+CREATE INDEX idx_power_plant_fuel_country_gen ON power_plant_global(primary_fuel, country, country_long, estimated_generation_gwh_2017);
+
+
+
+-- Summery Table --
+
++---------+-------------------+-------------------+------------------------+
+|  Query  | Time Before (s)   | Time After (s)    | Improvement (%)        |
++---------+-------------------+-------------------+------------------------+
+| Query 2 |      0.03926      |      0.00229      |        94.17 %         |
+| Query 4 |      0.08440      |      0.02560      |        69.68 %         |
+| Query 5 |      0.01912      |      0.00284      |        85.15 %         |
+| Query 7 |      0.10749      |      0.02347      |        78.15 %         |
++---------+-------------------+-------------------+------------------------+
+
+The execution times were measured using the SHOW PROFILE command in MySQL, that allowed us to capture precise timing before and after optimization, 
+enabling an accurate assessment of performance improvements.
+
+To calculate the improvement in performance, we used the following formula: 
+--------------------------------------------------------------------------
+ Improvement (%)= 100 − ( Execution Time After × 100 / Execution Time Before) 
+--------------------------------------------------------------------------
+This represents the percentage reduction in execution time after optimization
+
+
+

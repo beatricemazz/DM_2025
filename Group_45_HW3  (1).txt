@@ -1,0 +1,646 @@
+
+╔═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════╗
+   Group 45: Beatrice Mazzocchi (1982122), Asia Montico (1966494)
+
+   Dataset: Nuclear Energy Dataset  
+   (Available at: https://www.kaggle.com/datasets/alistairking/nuclear-energy-datasets)
+
+   Tools Used:  
+   - NoSQL Booster 8.0.9  
+   - Python 3.7.12 (executed via Visual Studio Code)  
+   - Neo4j 5.24.0
+
+   **IMPORTANT:**  
+   A detailed report of the work performed is available here:  
+   https://drive.google.com/file/d/1bc45sDPMooiX4-l7BSaY_I1EvzhQBtrR/view?usp=sharing
+╚═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════╝
+
+We used Python as an external tool to import and transform data into four MongoDB collections. 
+The Python script was executed from Visual Studio Code, the libraries Pandas and PyMongo were used to preprocess 
+CSV files and populate the database `energy_db`.
+
+==========================================================================================================================================
+================================================Python Code Used==========================================================================
+==========================================================================================================================================
+
+import pandas as pd
+from pymongo import MongoClient
+
+def clean_int(value):
+    if pd.isna(value):
+        return None
+    if isinstance(value, str):
+        value = value.replace(',', '')
+    try:
+        return int(float(value))
+    except ValueError:
+        return None
+
+client = MongoClient('mongodb://localhost:27017/')
+db = client['energy_db']
+
+# Collection 1: Global Power Plants
+def load_power_plants():
+    df = pd.read_csv("power_plant_database_global.csv", sep=';', encoding='utf-8')
+    db.power_plant_global.delete_many({})
+    db.power_plant_global.insert_many(df.to_dict('records'))
+
+# Collection 2: Death Rates per Energy Source
+def load_death_rates():
+    df = pd.read_csv('rates_death_from_energy_production_per_twh.csv')
+    death_rates = [{
+        'energy_source': row['Entity'],
+        'deaths_per_twh': row['Deaths per TWh of electricity production'],
+        'year': row['Year']
+    } for _, row in df.iterrows()]
+    db.death_rates.delete_many({})
+    db.death_rates.insert_many(death_rates)
+
+# Collection 3: World Nuclear Energy Generation
+def load_world_nuclear_generation():
+    df = pd.read_csv('world_nuclear_energy_generation.csv')
+    nuclear_gen = []
+    for _, row in df.iterrows():
+        if pd.notna(row['electricity_from_nuclear_twh']):
+            nuclear_gen.append({'country': row['Entity'],'year': row['Year'],
+                'electricity_from_nuclear_twh': row['electricity_from_nuclear_twh'],
+                'share_of_electricity_pct': row['share_of_electricity_pct']})
+
+    db.world_nuclear_generation.delete_many({})
+    db.world_nuclear_generation.insert_many(nuclear_gen)
+
+# Collection 4: US Nuclear Statistics
+def load_us_nuclear_stats():
+    uranium_prod = pd.read_csv('uranium_production_summary_us.csv')
+    uranium_price = pd.read_csv('uranium_purchase_price_us.csv', sep=';', encoding='utf-8')
+    nuclear_gen = pd.read_csv('us_nuclear_generating_statistics_1971_2021.csv')
+
+    uranium_price.columns = uranium_price.columns.str.strip().str.lower().str.replace(' ', '_')
+
+    if 'delivery_year' not in uranium_price.columns:
+        print("Error")
+        return
+
+    uranium_prod['Year'] = uranium_prod['Year'].astype(int)
+    uranium_price['delivery_year'] = uranium_price['delivery_year'].astype(int)
+    nuclear_gen['YEAR'] = nuclear_gen['YEAR'].astype(int)
+
+    uranium_prod_by_year = uranium_prod.set_index('Year').to_dict(orient='index')
+    uranium_price_by_year = uranium_price.set_index('delivery_year').to_dict(orient='index')
+
+    us_stats = []
+
+    for _, row in nuclear_gen.iterrows():
+        year = row['YEAR']
+        prod_data = uranium_prod_by_year.get(year, {})
+        uranium_production = {'surface_drilling_ft_mill': prod_data.get('Exploration and development surface drilling'),
+            'drilling_expenditures_usd_mill': prod_data.get('Exploration and development drilling expenditures'),
+            'mine_production_lbs_mill': prod_data.get('Mine production of uranium'),
+            'concentrate_production_lbs_mill': prod_data.get('Uranium concentrate production'),
+            'concentrate_shipments_lbs_mill': prod_data.get('Uranium concentrate shipments'),
+            'employment_person_years': clean_int(prod_data.get('Employment'))}
+
+        uranium_production = {k: v for k, v in uranium_production.items() if pd.notna(v)}
+
+        price_data = uranium_price_by_year.get(year, {})
+        uranium_prices = {'total_purchased_usd_per_lb': price_data.get('total_purchased'),
+            'us_producers_usd_per_lb': price_data.get('purchased_from_u.s._producers'),
+            'us_brokers_usd_per_lb': price_data.get('purchased_from_u.s._brokers_and_traders'),
+            'other_us_suppliers_usd_per_lb': price_data.get('purchased_from_other_owners_and_operators_of_u.s._civilian_nuclear_power_reactors,_other_u.s._suppliers,_(and_u.s._government_for_2007)'),
+            'foreign_suppliers_usd_per_lb': price_data.get('purchased_from_foreign_suppliers'),
+            'us_origin_usd_per_lb': price_data.get('u.s.-origin_uranium'),
+            'foreign_origin_usd_per_lb': price_data.get('foreign-origin_uranium'),
+            'spot_contracts_usd_per_lb': price_data.get('spot_contracts'),
+            'term_contracts_usd_per_lb': price_data.get('short-,_medium-,_and_long-term_contracts')}
+
+        uranium_prices = {k: v for k, v in uranium_prices.items() if pd.notna(v)}
+
+        nuclear_generation = {'total_generation_mwh': row.get('TOTAL ELECTRICITY GENERATION'),
+            'nuclear_generation_mwh': row.get('NUCLEAR GENERATION'),
+            'nuclear_fuel_share_pct': row.get('NUCLEAR FUEL SHARE'),
+            'capacity_factor_pct': row.get('CAPACITY FACTOR'),
+            'summer_capacity_mw': row.get('SUMMER CAPACITY')}
+        nuclear_generation = {k: v for k, v in nuclear_generation.items() if pd.notna(v)}
+
+        record = {'year': year,
+            'uranium_production': uranium_production,
+            'uranium_prices': uranium_prices,
+            'nuclear_generation': nuclear_generation}
+
+        us_stats.append(record)
+
+    db.us_nuclear_stats.delete_many({})
+    db.us_nuclear_stats.insert_many(us_stats)
+
+# === collections ===
+load_power_plants()
+load_death_rates()
+load_world_nuclear_generation()
+load_us_nuclear_stats()
+
+# === Indexes  ===
+db.power_plant_global.create_index([('country', 1)])
+db.power_plant_global.create_index([('primary_fuel', 1)])
+db.power_plant_global.create_index([('capacity_mw', -1)])
+db.death_rates.create_index([('energy_source', 1)])
+db.world_nuclear_generation.create_index([('country', 1)])
+db.world_nuclear_generation.create_index([('year', -1)])
+db.us_nuclear_stats.create_index([('year', -1)])
+
+
+[Collection 4: US Nuclear Statistics – Data Structure Explanation]
+
+In this collection, we used a nested structure to logically organize data that refers to the same year but comes from different sources: uranium production, uranium prices, and nuclear power generation.Each record represents a year and contains sub-documents for each of the three sources:
+- "uranium_production": data related to exploration, production, and employment
+- "uranium_prices": purchase prices from various suppliers
+- "nuclear_generation": statistics on nuclear energy production
+This approach allows us to: Maintain the logical independence of the original tables, avoid using join/look-up operations across separate collections, preserve all available information for each year, even when data is incomplete across the datasets
+
+
+==============================================================================================================================
+========================================MONGODB QUERIES=======================================================================
+==============================================================================================================================
+
+
+-- QUERY 1: Capacity per fuel --
+
+The goal of this query is to demonstrate that, despite the limited number of nuclear power plants globally, they are capable of generating a very large amount of energy compared to more polluting sources such as coal and others.The query counts the number of plants per fuel type and sums their total capacity.
+We identify two significant differences between MySQL and MongoDB in how this query is structured and executed:
+
++--------------------+------------------------------+---------------------------------------------------------+
+| Feature            | MySQL                        | MongoDB                                                 |
++--------------------+------------------------------+---------------------------------------------------------+
+| Grouping           | Uses GROUP BY clause         | Uses $group stage with explicit grouping field (id)     |
+| Aliasing           | Uses AS keyword for aliasing | Uses projection to rename grouped fields                |
++--------------------+------------------------------+---------------------------------------------------------+
+
+In MySQL, grouping is performed using the GROUP BY syntax, while in MongoDB we must explicitly declare the grouping field inside the $group operator by assigning it to an identifier Similarly, MySQL uses the AS keyword to alias columns, whereas in MongoDB we achieve this through the projection stage, which maps the grouped identifiers to the final output field names.
+
+
+
+db.power_plant_global.createIndex({ primary_fuel: 1 })
+db.power_plant_global.aggregate([
+    {$group: {_id: "$primary_fuel", number_of_plants: { $sum: 1 },total_capacity_mw: { $sum: "$capacity_mw" }}},
+    {$project: {primary_fuel: "$_id",number_of_plants: 1,total_capacity_mw: { $round: ["$total_capacity_mw", 2]},_id: 0}},
+    {$sort: { total_capacity_mw: -1 }}]);
+  
+
+
+-- QUERY 2: Top 10 countries per Nuclear Capacity --
+
+For the second query, we aim to calculate the top 10 countries by nuclear capacity to understand where nuclear energy is concentrated globally and identify the key players in this sector, such as France and USA. When comparing the MongoDB implementation to MySQL, no significant differences arise apart from those already explained previously. 
+One minor difference is the filtering step: in MySQL it is done using the WHERE clause, while in MongoDB it corresponds to the $match stage. 
+However, this difference does not impact the overall logic or complexity significantly. In particular, we will go back to  the United States, as the dataset provides us with dedicated tables focused on the U.S. context. 
+We will investigate whether this high level of nuclear energy production is also justified in terms of the raw material 
+used: the uranium, which is the key resource required to generate nuclear energy.
+
+
+db.power_plant_global.aggregate([{$match: {primary_fuel: "Nuclear",capacity_mw: { $ne: null }}},
+   {$group: {_id: "$country_long",total_nuclear_capacity_mw: { $sum: "$capacity_mw" }}},
+   {$project: {country_long: "$_id",total_nuclear_capacity_mw: { $round: ["$total_nuclear_capacity_mw", 2] },_id: 0}},
+   {$sort: { total_nuclear_capacity_mw: -1 }}]);
+
+
+
+-- QUERY 3: Countries by Nuclear Share in Electricity Generation --
+
+
+In this third query, we aim to understand how much nuclear energy contributes to the electricity mix of different countries. When comparing MongoDB to MySQL, one key difference we identified is that MongoDB does not support a direct equivalent of the SQL HAVING clause. Specifically, we wanted to select only those countries whose average nuclear share percentage is higher than the overall global average. Since MongoDB does not allow us to perform this comparison within a single aggregation stage, we decided to split the query into three parts:
+
+1) First, calculate the nuclear share for the year 2023, which is the most recent year of interest.
+2) Store this result as a constant.
+3) Use a second query to perform the full calculation and comparison, filtering countries whose average nuclear share exceeds the global average.
+
+The choice to use a constant was motivated by the need to limit query execution time. Since this value represents a single constant for a specific year (2023), it makes sense to store it once rather than recomputing it multiple times. This approach simplifies the query. As we have already highlighted earlier, France remains a major player in the nuclear energy sector, 
+demonstrating its strong reliance on nuclear power.
+
++-------------------------------+----------------------------------------------------------------------------------------+--------------------------------
+| Aspect                        | MongoDB                                                                                | MySQL                                                                                                          
++-------------------------------+-------------------------------------------------------------------------------------------------------------------------
+| Global average calculation    | Performed in a separate query and stored as a constant (global_avg)                    | Computed inline in the HAVING clause using a subquery                                                         
+| Filtering grouped results     | Requires an additional $match stage after $group to filter aggregated values           | Uses HAVING to filter groups directly  
+|
+| HAVING equivalent             | No direct equivalent — filtering must be handled manually after aggregation            | Native support for HAVING clause for filtering aggregated results                                             
++-------------------------------+----------------------------------------------------------------------------------------+--------------------------------
+
+
+db.world_nuclear_generation.aggregate([{ $match: { year: 2023 } },{ $group: {_id: null,global_avg: { $avg: "$share_of_electricity_pct" }}}]) 
+const global_avg = 8.67202199345238;
+db.world_nuclear_generation.aggregate([{ $match: { year: 2023 } },{ $group: {_id: "$country",avg_nuclear_share: { $avg: "$share_of_electricity_pct" }}},
+    {$match: { avg_nuclear_share: { $gt: global_avg } }},
+    {$project: {country: "$_id",avg_nuclear_share: { $round: ["$avg_nuclear_share", 2] },_id: 0}},
+    {$sort: { avg_nuclear_share: -1 } }])
+
+
+
+-- QUERY 4: Highest Annual Increases in Nuclear Energy Production by Country --
+
+This query aims to highlight the maximum annual increase in nuclear energy production for each country,providing a clear and detailed overview of where and when countries experienced the largest gains in nuclear energy production.
+Looking at individual countries rather than cooperations or aggregations of countries, we can see that France, Canada, and Japan are the ones that have most recently invested heavily in nuclear energy.
+
+The approach in MySQL is simple cause, we can perform a self-join on the table to align each year with its previous one for the same country. This allows us to compute the year-over-year difference in production and, through a correlated subquery, isolate the year with the maximum positive difference for each country.
+
+However, in MongoDB, we cannot rely on join operations in the same way. Instead, we must adopt a different strategy, summarized in the comparison table below. 
+The process involves grouping data by country and pushing yearly values into an array. Then, we iterate over the array using $map and $arrayElemAt to compute the differences between consecutive years. After computing these differences, we unwind and sort them to retrieve the year with the maximum increase per country.This alternative makese the query more complex in MongoDB compared to MySQL.
+
++------------------------------+--------------------------------------------------------------------------------------------+-----------------------------
+| Aspect                       | MongoDB                                                                                    | MySQL                                                                                                            
++------------------------------+--------------------------------------------------------------------------------------------+-----------------------------
+| Year-over-year comparison    | Simulated using $range and $map to calculate differences between consecutive years         | Achieved through self JOIN                                                  
+| Filtering max per country    | Uses $sort by difference and $group to select the max positive delta per country           | Uses a correlated subquery                                       
+| Data alignment               | Manual alignment of data using array indices and $arrayElemAt                              | Handled implicitly by JOIN conditions                                                                            
++------------------------------+--------------------------------------------------------------------------------------------+-----------------------------
+
+
+db.world_nuclear_generation.aggregate([{ $match: { year: { $gt: 2015 } } },
+   {$group: {_id: "$country",data: {$push: {year: "$year",gen: "$electricity_from_nuclear_twh"}}}},
+   {$project: {country: "$_id",diffs: {$map: {input: { $range: [1, { $size: "$data" }] },as: "idx",in: {year: { $arrayElemAt: ["$data.year", "$$idx"] },
+   diff: { $subtract: [ { $arrayElemAt: ["$data.gen", "$$idx"] },{ $arrayElemAt: ["$data.gen", { $subtract: ["$$idx", 1]}]}]},
+   total: { $arrayElemAt: ["$data.gen", "$$idx"] }}}}}},
+   {$unwind: "$diffs" },
+   {$match: { "diffs.diff": { $gt: 0 } } },
+   {$sort: { "country": 1, "diffs.diff": -1 }},
+{$group: {_id: "$country",year: { $first: "$diffs.year" },generation_difference: { $first: "$diffs.diff" },total_nuclear_generation: { $first: "$diffs.total" }}},
+{$project: {country: "$_id",year: 1, total_nuclear_generation: { $round: ["$total_nuclear_generation", 2] },generation_difference: { $round: ["$generation_difference", 2] },_id: 0}},
+{$sort: { generation_difference: -1 }}]);
+
+
+
+-- QUERY 5: Geographical Bands analysis --
+
+This query analyzes the global distribution of nuclear power plants by dividing the world into fixed 5-degree latitude and longitude bands. Rather than focusing on political borders or countries, the analysis highlights physical zones that are most critical in terms of nuclear energy production capacity.
+From this analysis, we can conclude that The United States and Canada, the Europe, particularly France, along with certain regions in Asia such as South Korea and Japan, dominate in terms of nuclear energy production.
+
+In MySQL, this task is relatively straightforward thanks to high-level functions like GROUP_CONCAT(DISTINCT ...) that easily deduplicate, sort, and join textual data.
+
+However, in MongoDB, the lack of a built-in equivalent requires a more granular, multi-step approach. We simulate the behavior by first removing duplicates with $addToSet, then alphabetically sorting the country list using $sortArray, and finally concatenating the values into a comma-separated string using $reduce. While the outcome is similar, the implementation is more complex and verbose in MongoDB compared to SQL.
+
+
++-----------------------------+-----------------------------------------------------------------------------+---------------------------------------------
+| Aspect                      | MongoDB                                                                     | MySQL                                                                                                      
++-----------------------------+-----------------------------------------------------------------------------+---------------------------------------------------------------------
+| Handling the list of        | Combines $addToSet, $sortArray, and $reduce to deduplicate,                 |
+| countries that fall within  | sort, and join countries into one string                                    | Uses GROUP_CONCAT(DISTINCT ...) with ORDER BY and SEPARATOR ', '    
+| each latitude-longitude band|                                                                             |
+
+
+
+db.power_plant_global.aggregate([
+  {$match: {
+      primary_fuel: "Nuclear",
+      latitude: { $ne: null },
+      longitude: { $ne: null }} },
+    
+  {$addFields: {
+      lat_band: {$concat: [
+          { $toString: { $multiply: [5, { $floor: { $divide: ["$latitude", 5] } }] } },
+          "°–",
+          { $toString: { $add: [5, { $multiply: [5, { $floor: { $divide: ["$latitude", 5] } }] }] } },
+          "°"]},
+      lon_band: {
+        $concat: [
+          { $toString: { $multiply: [5, { $floor: { $divide: ["$longitude", 5] } }] } },
+          "°–",
+          { $toString: { $add: [5, { $multiply: [5, { $floor: { $divide: ["$longitude", 5] } }] }] } },
+          "°"]}}},
+  
+  {$group: {
+      _id: { lat_band: "$lat_band", lon_band: "$lon_band" },
+      plant_count: { $sum: 1 },
+      total_capacity_mw: { $sum: "$capacity_mw" },
+      countries_in_band: { $addToSet: "$country_long" }}},
+  
+  {$project: {_id: 0, lat_band: "$_id.lat_band", lon_band: "$_id.lon_band",
+      plant_count: 1,
+      total_capacity_mw: 1,
+      countries_in_band: {
+        $reduce: {
+          input: { $sortArray: { input: "$countries_in_band", sortBy: 1 } },
+          initialValue: "",
+          in: {
+            $cond: [
+              { $eq: ["$$value", ""] },
+              "$$this",
+              { $concat: ["$$value", ", ", "$$this"] }]}}}}},
+ 
+  {$sort: { total_capacity_mw: -1 }}])
+
+
+
+-- QUERY 6: Safety Levels of other sources  --
+
+In this query, our goal is to analyze and compare the safety levels of different energy sources, using a key metric: the number of deaths per terawatt-hour (TWh) of electricity production.
+This data offers insight into the human cost of each energy technology, including both direct (accidents, failures) and indirect (pollution, long-term exposure) deaths.
+The main idea is to assess how much more dangerous each energy source is compared to nuclear power. To achieve this, we calculated the ratio between the death rate of each source and that of nuclear, allowing us to clearly see which sources have a higher human cost per unit of energy produced.
+
+In SQL, this is done with a single self-join (specifically, a CROSS JOIN) on the table containing all energy sources. By joining the table with itself:
+1) One instance is filtered to only include nuclear.
+2) The other includes all non-nuclear sources.
+3) The query computes the ratio between the two values, showing how much more deadly each alternative source is.
+
+In MongoDB, since there is no native join, we manually extract the nuclear reference row using a separate findOne() call. We then inject that data into each document of the aggregation pipeline using $addFields. From there, we compute the death ratio using $divide and sort the results.
+
+
++--------------------------+--------------------------------------------------------------------------------------+---------------------------------------
+| Aspect                   | MongoDB                                                                              | SQL                                                              |
++--------------------------+--------------------------------------------------------------------------------------+--------------------------------------------------------------+
+| Join logic               | Not available natively – nuclear data is fetched separately and injected manually    | Performed via a single CROSS JOIN                            
+|                          |                                                                                      |                                                              
+| Nuclear reference        | Retrieved via `findOne()` and reused in each pipeline document                       | Filtered in one table instance of the self-join              
++--------------------------+--------------------------------------------------------------------------------------+---------------------------------------
+
+
+const nuclear = db.death_rates.findOne({ energy_source: "Nuclear" });
+
+db.death_rates.aggregate([
+  {$match: { energy_source: { $ne: "Nuclear" } }},
+  {$addFields: {
+      nuclear_source: "Nuclear",
+      nuclear_deaths: nuclear.deaths_per_twh,
+      times_more_dangerous: {
+        $divide: ["$deaths_per_twh", nuclear.deaths_per_twh]}}},
+  {$project: {
+      _id: 0,
+      nuclear: "$nuclear_source",
+      nuclear_deaths: "$nuclear_deaths",
+      other_source: "$energy_source",
+      other_deaths: "$deaths_per_twh",
+      times_more_dangerous: 1}},
+  {$sort: { times_more_dangerous: -1 }}]);
+
+
+-- QUERY 7: Nuclear vs Solar energy --
+
+In this query, we perform a country-level comparison between nuclear and solar energy, focusing on both their estimated electricity production and the associated number of deaths. For each country that produces energy from both sources, we calculate the total generation (in GWh) and estimate the number of deaths based on global averages of deaths per TWh .
+The idea is to bring together two clean energy sources and evaluate not just how much energy they produce, but also the human cost associated with that production. While solar is widely regarded as a safe and sustainable option, this analysis shows that nuclear energy can generate significantly more power in many countries, often with a comparable death rate. 
+
+In SQL, this is done using two separate subqueries (one for nuclear, one for solar) that:
+1) Aggregate total generation per country,
+2) Multiply that value by the corresponding death rate (fetched via a subquery),
+3) Use an INNER JOIN on country to combine them.
+Post-aggregation filters are done using HAVING, which ensures only countries with non-zero production are included.
+
+In MongoDB, this logic is replicated using a single aggregation pipeline. Since there are no subqueries or joins:
+1) We match only primary_fuel values of “Nuclear” or “Solar”.
+2) We group by country and fuel, summing the generation.
+3) We reshape the data using $project and $map to pivot the fuel values into separate nuclear and solar fields.
+4) We manually inject the death rate values (fetched earlier via findOne()).
+5) We compute deaths using $multiply and filter only countries where both sources are present 
+
++----------------------------+------------------------------------------------------------------------------------------+---------------------------------
+| Aspect                     | MongoDB                                                                                  | SQL                                                                
++----------------------------+------------------------------------------------------------------------------------------+---------------------------------
+| Subqueries for each fuel   | Unified in a single pipeline with $match on both "Nuclear" and "Solar"                   | Implemented via two separate subqueries (one per energy source)    
+|                            |                                                                                          |                                                                    
+| Joining on country         | Simulated by grouping on country and then reshaping data with $project and $map          | Done via INNER JOIN on the country field                           
+|                            |                                                                                          |                                                                    
+| HAVING clause replacement  | Post-filtering using `$match: { nuclear_gwh: { $gt: 0 }, solar_gwh: { $gt: 0 }}`         | HAVING SUM(...) > 0 on each subquery                               
++----------------------------+------------------------------------------------------------------------------------------+---------------------------------
+
+
+const nuclearRate = db.death_rates.findOne({ energy_source: "Nuclear", year: 2021 }).deaths_per_twh;
+const solarRate = db.death_rates.findOne({ energy_source: "Solar", year: 2021 }).deaths_per_twh;
+
+db.power_plant_global.aggregate([
+  {$match: {
+      primary_fuel: { $in: ["Nuclear", "Solar"] },
+      estimated_generation_gwh_2017: { $gt: 0 }}},
+  {$group: {
+      _id: {
+        country: "$country",
+        country_long: "$country_long",
+        fuel: "$primary_fuel"},
+      total_generation_gwh: { $sum: "$estimated_generation_gwh_2017" }}},
+  {$group: {
+      _id: {
+        country: "$_id.country",
+        country_long: "$_id.country_long"},
+      fuels: {
+        $push: {
+          fuel: "$_id.fuel",
+          gwh: "$total_generation_gwh"}}}},
+  {$project: {
+      country: "$_id.country",
+      country_long: "$_id.country_long",
+      nuclear_gwh: {
+        $first: {
+          $map: {
+            input: {
+              $filter: {
+                input: "$fuels",
+                as: "f",
+                cond: { $eq: ["$$f.fuel", "Nuclear"] }}},
+            as: "nf",
+            in: "$$nf.gwh"}}},
+      solar_gwh: {
+        $first: {
+          $map: {
+            input: {
+              $filter: {
+                input: "$fuels",
+                as: "f",
+                cond: { $eq: ["$$f.fuel", "Solar"] }}},
+            as: "sf",
+            in: "$$sf.gwh"}}}}},
+  {$addFields: {
+      nuclear_deaths: { $multiply: [{ $divide: ["$nuclear_gwh", 1000] }, nuclearRate] },
+      solar_deaths: { $multiply: [{ $divide: ["$solar_gwh", 1000] }, solarRate] }}},
+  {$match: {
+      nuclear_gwh: { $gt: 0 },
+      solar_gwh: { $gt: 0 }}},
+  {$sort: { nuclear_gwh: -1 }},
+  { $project: {
+      _id: 0,
+      country: 1,
+      country_long: 1,
+      nuclear_gwh: 1,
+      solar_gwh: 1,
+      nuclear_deaths: 1,
+      solar_deaths: 1}}]);
+
+
+
+
+-- QUERY 8: actual vs estimated nuclear energy generation --
+
+In this analysis, we focused on the difference between the actual and estimated nuclear energy generation for each power plant in the year 2017. The goal was to assess how accurate the estimations are compared to the real recorded data.
+For each nuclear plant with both actual and estimated generation data, we calculated the absolute and percent error to measure discrepancies. We then sorted the results by percent error to identify the plants with the largest differences between estimated and actual energy output. Unfortunately, we found that the estimations were often not accurate, with some significant deviations.
+
+The logic in MongoDB follows the same approach as in SQL. The query is essentially a translation of SQL commands into MongoDB’s aggregation pipeline stages, where filtering, field calculations, and sorting are performed to achieve the same results.
+
+
+
+db.power_plant_global.aggregate([
+  {$match: {
+      primary_fuel: "Nuclear",
+      generation_gwh_2017: { $nin: [null, 0] },
+      estimated_generation_gwh_2017: { $ne: null }}},
+  {$addFields: {
+      real_generation: "$generation_gwh_2017",
+      estimated_generation: "$estimated_generation_gwh_2017",
+      absolute_error: {
+        $round: [{ $abs: { $subtract: ["$generation_gwh_2017", "$estimated_generation_gwh_2017"] } }, 2]},
+      percent_error: {
+        $round: [
+          {$multiply: [
+              {$divide: [
+                  { $abs: { $subtract: ["$generation_gwh_2017", "$estimated_generation_gwh_2017"] } },
+                  "$generation_gwh_2017"]},100]},
+            2]}}},
+  {$project: {
+      _id: 0,
+      country: 1,
+      name: 1,
+      real_generation: 1,
+      estimated_generation: 1,
+      absolute_error: 1,
+      percent_error: 1}},
+  {$sort: { percent_error: -1 }}])
+
+
+    
+-- QUERY 9: U.S. uranium production and nuclear energy generation (time analysis)--
+   
+In this query, we analyze the U.S. uranium production industry and its relationship with nuclear energy generation over time. We combine annual uranium mining data (production in million pounds and employment) with nuclear electricity generation data (in MWh).
+The data shows that while uranium production and employment declined over the years, nuclear generation remained stable, indicating likely increased uranium imports.
+
+Unlike in typical SQL scenarios where uranium production and nuclear generation data might come from two separate tables requiring a JOIN on the year column, in this MongoDB dataset both sets of information are stored together in the same collection as nested fields within each document by year. This means that in In MongoDB, no join is necessary since all relevant data for a given year are contained within the same document, allowing a straightforward aggregation pipeline that directly projects and sorts these fields.
+
++----------------------------+--------------------------------------------------------------------------------------------+-------------------------------
+| Aspect                     | MongoDB                                                                                    | SQL                                                                
++----------------------------+--------------------------------------------------------------------------------------------+-------------------------------
+| Data source structure      | same collection nested fields (`uranium_production`, `nuclear_generation`)                 | Data in two separate tables    
+| Join operation             | No explicit join needed, as related data is within the same document                       | Explicit JOIN on the year   +----------------------------+--------------------------------------------------------------------------------------------+-------------------------------
+
+
+db.us_nuclear_stats.aggregate([
+  {$match: {"uranium_production.employment_person_years": { $gt: 0 }}},
+  {$project: {
+      _id: 0,
+      year: 1,
+      production_million_lbs: "$uranium_production.mine_production_lbs_mill",
+      employees: "$uranium_production.employment_person_years",
+      generation_mwh: "$nuclear_generation.nuclear_generation_mwh"}},
+  {$sort: {year: -1}}])
+
+
+
+    
+-- QUERY 10: nuclear energy production in the United States and uranium costs (time analysis) --
+
+This query aims to analyze the relationship between nuclear energy production in the United States and the associated uranium costs over time. By joining two datasets, one containing U.S. nuclear generation statistics and the other detailing uranium purchase prices and quantities, we can understand how changes in uranium prices and nuclear generation affect overall uranium costs for nuclear power production.
+The query first calculates the amount of uranium needed for nuclear generation each year, using the assumption that each megawatt-hour (MWh) of nuclear energy requires approximately 0.007 pounds of uranium. Then, it calculates the total uranium cost for each year by multiplying the required uranium by the uranium price for that year.
+
+As in the previous query SQL joins two separate tables on year to perform calculations and sorting, while MongoDB uses a single collection with nested fields, eliminating the need for a join by using aggregation stages for filtering, calculation, and sorting.
+
+db.us_nuclear_stats.aggregate([
+  {$match: {
+      "nuclear_generation.nuclear_generation_mwh": { $ne: null },
+      "uranium_prices.total_purchased_usd_per_lb": { $ne: null }}},
+  {$project: {
+      _id: 0,
+      year: 1,
+      nuclear_generation_mwh: "$nuclear_generation.nuclear_generation_mwh",
+      uranium_price_usd_per_lb: "$uranium_prices.total_purchased_usd_per_lb",
+      uranium_needed_pounds: {
+        $round: [{ $multiply: ["$nuclear_generation.nuclear_generation_mwh", 0.007] }, 2]},
+      total_uranium_cost_usd: {
+        $round: [
+          {$multiply: [
+              { $multiply: ["$nuclear_generation.nuclear_generation_mwh", 0.007] },
+              "$uranium_prices.total_purchased_usd_per_lb"]},
+         2]}}},
+  {$sort: { year: -1 }}])
+
+
+=================================================================================================================================================== ======================================================Query 5 : Neo4j vs MongoDB===================================================================
+===================================================================================================================================================
+
+
+Even though MongoDB and Neo4j use fundamentally different data models (document vs. graph), we measured and compared the execution times of equivalent query logic in both systems to get a practical sense of their performance. This is a comparative observation rather than a strict benchmark.
+
+In Neo4j, before executing queries, it was necessary to explicitly define the relationships between entities. For example, we defined relationships like this:
+
+1) [PowerPlant nodes]
+
+LOAD CSV WITH HEADERS FROM 'file:///power_plant_database_global.csv' AS row FIELDTERMINATOR';'
+WITH row
+WHERE row . country IS NOT NULL
+MERGE ( c : Country { code : row . country })
+ON CREATE SET
+c . name = row . country_long
+
+2) [Country nodes]
+
+LOAD CSV WITH HEADERS FROM 'file:///power_plant_database_global.csv' AS row
+FIELDTERMINATOR ';'
+WITH row
+WHERE row.country IS NOT NULL
+MERGE (c:Country {code: row.country})
+ON CREATE SET c.name = row.country_long
+
+
+3) [Relationship : LOCATED IN]
+
+LOAD CSV WITH HEADERS FROM 'file:///power_plant_database_global.csv' AS row FIELDTERMINATOR';'
+WITH row
+MATCH ( p : PowerPlant { name : row . name })
+MATCH ( c : Country { code : row . country })
+MERGE ( p ) -[: LOCATED_IN ] - >( c )
+
+This kind of pre-processing increases the initial setup effort compared to MongoDB, where data can be queried more directly without requiring predefined relationships.
+However, once these relationships are established, Neo4j enables more expressive and optimized graph-based queries.
+
+=== QUERY 5 Neo4j ===
+
+MATCH (p:PowerPlant)-[:LOCATED_IN]->(c:Country)
+WHERE p.primary_fuel = 'Nuclear'
+  AND p.latitude IS NOT NULL
+  AND p.longitude IS NOT NULL
+WITH
+  floor(toFloat(p.latitude) / 5) * 5 AS lat_band_start,
+  floor(toFloat(p.longitude) / 5) * 5 AS lon_band_start,
+  p, c
+WITH
+  toString(lat_band_start) + " - " + toString(lat_band_start + 5) AS lat_band,
+  toString(lon_band_start) + " - " + toString(lon_band_start + 5) AS lon_band,
+  c.name AS country,
+  p.capacity_mw AS capacity
+WITH
+  lat_band,
+  lon_band,
+  collect(DISTINCT country) AS countries_in_band,
+  count(*) AS plant_count,
+  sum(toFloat(capacity)) AS total_capacity_mw
+RETURN
+  lat_band,
+  lon_band,
+  plant_count,
+  total_capacity_mw,
+  countries_in_band
+ORDER BY
+  total_capacity_mw DESC
+
+
+In terms of query complexity, Neo4j offers a more linear and readable syntax using WITH and RETURN, while MongoDB requires nested pipelines with operators like $group, $addFields, and $reduce. For relationship handling, Neo4j allows direct navigation through patterns like -[:LOCATED_IN]->, whereas MongoDB emulates relationships using embedded references such as country_code within documents. Regarding readability, Neo4j query tend to be more intuitive, while MongoDB query is more technical and require handling deeply nested structures with operators like $floor and $concat.In our test, we observed that despite the initial overhead, the Neo4j query execution was faster.To calculate the difference in performance, we used the following formula:
+
+--------------------------------------------------------------------------------------------------
+Execution Time Comparison Formula (%) = 100 − ( Execution Neo4j × 100 / Execution Time MongoDB )
+--------------------------------------------------------------------------------------------------
+
+This represents the percentage reduction in execution time after optimization.
+
+Performance Comparison: MongoDB vs Neo4j
+===============================================
++-----------------------+---------------------+
+| System                | Execution Time      |
++-----------------------+---------------------+
+| MongoDB               | 0.048 seconds       |
+| Neo4j                 | 0.038 seconds       |
++-----------------------+---------------------+
+
+Execution Time Comparison Formula (%) = 100 − ( 0.038 × 100 / 0.048 ) = 100 − 79.17 = 20.83 %. Neo4j was approximately 20.83% faster than MongoDB. 
+
+In the end, the choice fell on MongoDB because this was the only query in our project that involved exploring relationships. Since the rest of the queries operated on flat or non-relational data structures, using a graph database like Neo4j would have introduced unnecessary complexity for limited overall benefit.
+
+

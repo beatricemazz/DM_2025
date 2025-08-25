@@ -12,6 +12,7 @@
 This project focuses on analyzing nuclear energy data available on kaggle, using a downloadable dataset available [here](https://www.kaggle.com/datasets/alistairking/nuclear-energy-datasets/data).
 The project notebook can be visualized via nbviewer: [View Notebook](https://nbviewer.org/github/beatricemazz/DM_2025/blob/main/Group_45_EDA.ipynb)
 
+> ⚠️ **NB:** This project was carried out as part of the first-year Data Science curriculum, within the course Data Management
 
 ## Table of Contents
 - [Project Objectives](#project-objectives)
